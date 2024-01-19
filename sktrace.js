@@ -1,11 +1,9 @@
-function sk_trace_range(tid, base, size) {
+function sk_trace_range(tid, base, begin, end) {
     Stalker.follow(tid, {
         transform: (iterator) => {
             const instruction = iterator.next();
             const startAddress = instruction.address;
-            const isModuleCode = startAddress.compare(base) >= 0 && 
-                startAddress.compare(base.add(size)) < 0;
-            // const isModuleCode = true;
+            const isModuleCode = startAddress.compare(begin) >= 0 && startAddress.compare(end) < 0;
             do {
                 iterator.keep();
                 if (isModuleCode) {       
@@ -30,12 +28,17 @@ function sk_trace_range(tid, base, size) {
     })
 }
 
+function sk_trace_range_in_module(module) {
+    sk_trace_range(Process.getCurrentThreadId(), module.base, module.base, module.base.add(module.size))
+}
+
 function sk_trace_func(module, fuc_addr) {  
     Interceptor.attach(fuc_addr, {
         onEnter: function(args) {
             console.log(`onEnter: ${module.name} ${fuc_addr}`)
-            this.tid = Process.getCurrentThreadId()
-            sk_trace_range(this.tid, module.base, module.size)
+            this.tid = Process.getCurrentThreadId();
+            // sk_trace_range_in_module(module)
+            sk_trace_range(this.tid, module.base, fuc_addr, fuc_addr.add(0x1000))
         },
         onLeave: function(ret) {
             console.log(`onLeave: ${module.name} ${fuc_addr}`)
