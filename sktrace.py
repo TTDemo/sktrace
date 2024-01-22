@@ -58,26 +58,30 @@ def _parse_args():
 
 f = open("trace.log", 'w') 
 inst_dict = {}
-base_addr = 0
+last_trace_pc = 0
 
 class Inst:
     def __init__(self, base, inst):
-        self.base = base
+        self.base = int(base, 16)
         self.addr = inst["address"]
         self.inst = inst
+        self.ctx = None
 
     
-    def trace_ins(self, ctx):
-        offet = hex(int(self.addr, 16)-int(self.base, 16)).upper()
-        
-        regs = []
-        for operand  in self.inst["operands"] :
-            if operand["type"] == "reg" and operand["value"] not in regs:
-                regs.append(operand["value"])
+    def trace_ins(self):
+        offet = hex(int(self.addr, 16)-self.base).upper()
         regs_str = ""
-        for reg in regs:
-            if reg in ctx.ctx:
-                regs_str += ("{}:{}  ".format(reg, ctx.ctx[reg]))
+        if self.ctx != None:
+            regs = []
+            for operand  in self.inst["operands"] :
+                if operand["type"] == "reg" and operand["value"] not in regs:
+                    regs.append(operand["value"])
+            for reg in regs:
+                if reg in self.ctx:
+                    if reg == "x8" or reg == "x9":
+                        regs_str += ("{}:{}!{}  ".format(reg, self.ctx[reg], hex(int(self.ctx[reg], 16)-self.base)))
+                    else:
+                        regs_str += ("{}:{}  ".format(reg, self.ctx[reg]))
         inst_line = "{}!{:<10}{:<15}{:<30}{}".format(self.addr.upper(), offet, self.inst["mnemonic"], self.inst["opStr"], regs_str)
         trace_log(inst_line)
 
@@ -122,12 +126,20 @@ def on_message(msg, data):
             ctx = Arm64Ctx(val)
             if ctx.pc not in inst_dict:
                 raise Exception("No inst addr:{} maybe caused by Interceptor.payload:{}".format(ctx.pc, payload))
+            inst_dict[ctx.pc].ctx = ctx.ctx
+            
+            global last_trace_pc
+            cur_pc = int(ctx.pc, 16)
+            if cur_pc- last_trace_pc > 4:
+                trace_log("...\r\n")
+            inst_dict[ctx.pc].trace_ins()
+            last_trace_pc = cur_pc
         
-            inst_dict[ctx.pc].trace_ins(ctx)
-            # self.inst_dict[ctx.pc].cal_regs_change(self.pre_ctx, ctx)
             pass
         elif type == "leave":
-            # print(payload)
+            trace_log("end")
+            for inst in inst_dict.values():
+                inst.trace_ins()
             pass
 
 

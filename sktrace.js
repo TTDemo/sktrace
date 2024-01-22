@@ -37,7 +37,7 @@ function sk_trace_func(module, fuc_addr) {
         onEnter: function(args) {
             console.log(`onEnter: ${module.name} ${fuc_addr}`)
             this.tid = Process.getCurrentThreadId();
-            // sk_trace_range_in_module(module)
+            //sk_trace_range_in_module(module)
             sk_trace_range(this.tid, module.base, fuc_addr, fuc_addr.add(0x1000))
         },
         onLeave: function(ret) {
@@ -80,6 +80,30 @@ function watch_lib_load(libname, callback) {
         console.log(JSON.stringify(payload))
         const libname = payload.libname;
         console.log(`libname:${libname}`)
+        // Process.enumerateModules({
+        //     onMatch: function (module) {
+        //             // 枚举导出函数并打印地址
+        //             if (module.name.indexOf("libc.so") >= 0  || module.name.indexOf("libdl.so") >= 0 
+        //             || module.name.indexOf("libm.so") >= 0   || module.name.indexOf("libstdc++.so") >= 0
+        //             || module.name.indexOf("libandroid.so") >= 0 || module.name.indexOf("liblog.so") >= 0
+        //             || module.name.indexOf("libz.so") >= 0 
+        //             ) {
+        //                 Module.enumerateExports(module.name, {
+        //                     onMatch: function (exportedFunction) {
+        //                        console.log(exportedFunction.address+":" + module.name + "!"+exportedFunction.name)
+        //                     },
+        //                     onComplete: function () {
+        //                         console.log('Export enumeration completed.');
+        //                     }
+        //                 });
+        //             }
+                  
+        //         },
+        //     onComplete: function () {
+        //         console.log('Module enumeration completed.');
+        //     }
+        // });
+
         if(!payload.spawn) {
             const tmodule = Process.getModuleByName(libname);
             let func_address = null;
