@@ -56,7 +56,10 @@ def _parse_args():
     return args
 
 
-f = open("trace.log", 'w') 
+file_ins = open("trace_ins.log", 'w') 
+file_smy = open("trace_smy.log", 'w')
+file_cot = open("trace_cot.log", 'w')
+
 inst_dict = {}
 last_trace_pc = 0
 
@@ -67,48 +70,64 @@ class Inst:
         self.inst = inst
         self.ctx = None
 
-    
-    def trace_ins(self):
-        offet = hex(int(self.addr, 16)-self.base).upper()
-        regs_str = ""
-        if self.ctx != None:
-            regs = []
-            for operand  in self.inst["operands"] :
-                if operand["type"] == "reg" and operand["value"] not in regs:
-                    regs.append(operand["value"])
-            for reg in regs:
-                if reg in self.ctx:
-                    if reg == "x8" or reg == "x9":
-                        regs_str += ("{}:{}!{}  ".format(reg, self.ctx[reg], hex(int(self.ctx[reg], 16)-self.base)))
-                    else:
-                        regs_str += ("{}:{}  ".format(reg, self.ctx[reg]))
-        inst_line = "{}!{:<10}{:<15}{:<30}{}".format(self.addr.upper(), offet, self.inst["mnemonic"], self.inst["opStr"], regs_str)
-        trace_log(inst_line)
 
 
 class Arm64Ctx:
-        def __init__(self, ctx):
-          self.pc = ctx["pc"]
-          self.ctx = ctx
+    def __init__(self, ctx):
+        self.pc = ctx["pc"]
+        self.ctx = ctx
 
 
 
-def trace_log(obj):
-    print(str(obj))
+def trace_log(obj, f):
     f.write(str(obj) + "\n")
     f.flush()
+    pass
 
 
+def trace_ins(inst, file_ins):
+    offet = hex(int(inst.addr, 16)-inst.base).upper()
+    inst_line = "{:<10}{:<15}{:<30}".format(offet, inst.inst["mnemonic"], inst.inst["opStr"])
+    trace_log(inst_line, file_ins)
+    pass
 
+def trace_call_out(inst, file_cot):
+    global last_trace_pc
+
+    # cur_pc = int(inst.ctx.pc, 16)
+    # if cur_pc- last_trace_pc > 4:
+    #     trace_log("lost call/jmp ins \r\n", file_cot)
+    offet = hex(int(inst.addr, 16)-inst.base).upper()
+    regs_str = ""
+    if inst.ctx != None:
+        regs = []
+        for operand  in inst.inst["operands"] :
+            if operand["type"] == "reg" and operand["value"] not in regs:
+                regs.append(operand["value"])
+        for reg in regs:
+            if reg in inst.ctx:
+                if reg == "x8" or reg == "x9":
+                    regs_str += ("{}:{}!{}  ".format(reg, inst.ctx[reg], hex(int(inst.ctx[reg], 16)-inst.base)))
+                else:
+                    regs_str += ("{}:{}  ".format(reg, inst.ctx[reg]))
+    inst_line = "{}!{:<10}{:<15}{:<30}{}".format(inst.addr.upper(), offet, inst.inst["mnemonic"], inst.inst["opStr"], regs_str)
+    trace_log(inst_line, file_cot)
+    # last_trace_pc = cur_pc
+    pass
+
+def trace_summery():
+    for inst in inst_dict.values():
+        inst.trace_ins(inst, file_smy)
+        
+    pass
 
 def on_message(msg, data):
     if msg['type'] == 'error':
-        trace_log(msg)
+        # trace_log(msg)
         return
 
     if msg['type'] == 'send':
         payload = msg['payload']
-        # tid = payload['tid']
         type = payload['type']
         if type == 'enter':
             # val = json.loads(payload['val'])
@@ -117,32 +136,19 @@ def on_message(msg, data):
         elif type == 'inst':
             val = json.loads(payload['val'])
             inst = Inst(payload["base"], val)
-           
-            # trace_log(inst.simple_str())
             inst_dict[inst.addr] = inst
+            trace_ins(inst, file_ins)
         elif type == 'ctx':
-            # print(payload)
             val = json.loads(payload['val'])            
             ctx = Arm64Ctx(val)
             if ctx.pc not in inst_dict:
                 raise Exception("No inst addr:{} maybe caused by Interceptor.payload:{}".format(ctx.pc, payload))
             inst_dict[ctx.pc].ctx = ctx.ctx
-            
-            global last_trace_pc
-            cur_pc = int(ctx.pc, 16)
-            if cur_pc- last_trace_pc > 4:
-                trace_log("...\r\n")
-            inst_dict[ctx.pc].trace_ins()
-            last_trace_pc = cur_pc
-        
+            trace_call_out(inst_dict[ctx.pc], file_cot)
             pass
         elif type == "leave":
-            trace_log("end")
-            for inst in inst_dict.values():
-                inst.trace_ins()
+            trace_summery(file_smy)
             pass
-
-
 def main():
     script_file = os.path.join(os.path.dirname(__file__), "sktrace.js")
     try:
