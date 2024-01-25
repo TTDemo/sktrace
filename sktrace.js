@@ -32,13 +32,13 @@ function sk_trace_range_in_module(module) {
     sk_trace_range(Process.getCurrentThreadId(), module.base, module.base, module.base.add(module.size))
 }
 
-function sk_trace_func(module, fuc_addr) {  
+function sk_trace_func(module, fuc_addr, offset) {  
     Interceptor.attach(fuc_addr, {
         onEnter: function(args) {
             console.log(`onEnter: ${module.name} ${fuc_addr}`)
             this.tid = Process.getCurrentThreadId();
             //sk_trace_range_in_module(module)
-            sk_trace_range(this.tid, module.base, fuc_addr, fuc_addr.add(0x1000))
+            sk_trace_range(this.tid, module.base, fuc_addr, fuc_addr.add(offset))
         },
         onLeave: function(ret) {
             console.log(`onLeave: ${module.name} ${fuc_addr}`)
@@ -112,7 +112,7 @@ function watch_lib_load(libname, callback) {
             } else if("offset" in payload) {
                 func_address = t_module.base.add(ptr(payload.offset));
             }
-            sk_trace_func(t_module, func_address)
+            sk_trace_func(t_module, func_address, payload.size)
             return;
         }else { 
             watch_lib_load(libname, (t_module) => {
@@ -122,7 +122,7 @@ function watch_lib_load(libname, callback) {
                 } else if("offset" in payload) {
                     func_address = t_module.base.add(ptr(payload.offset));
                 }
-                sk_trace_func(t_module, func_address)
+                sk_trace_func(t_module, func_address, payload.size)
             })
         }
     })

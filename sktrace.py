@@ -42,6 +42,8 @@ def _parse_args():
                         help="Specify a native library like libnative-lib.so")
     parser.add_argument("-i", "--interceptor", required=True, 
                         help="Specity a function (symbol or a hex offset address) to trace.")
+    parser.add_argument("-s", "--size", required=True, 
+                        help="Specity a trace  address size.")
     parser.add_argument("-p", "--prepend", type=argparse.FileType("r"),
                         help="Prepend a Frida script to run before sktrace does.")
     parser.add_argument("-a", "--append", type=argparse.FileType("r"),
@@ -58,7 +60,6 @@ def _parse_args():
 
 file_ins = open("trace_ins.log", 'w') 
 file_smy = open("trace_smy.log", 'w')
-file_cot = open("trace_cot.log", 'w')
 
 inst_dict = {}
 last_trace_pc = 0
@@ -87,17 +88,6 @@ def trace_log(obj, f):
 
 def trace_ins(inst, file_ins):
     offet = hex(int(inst.addr, 16)-inst.base).upper()
-    inst_line = "{:<10}{:<15}{:<30}".format(offet, inst.inst["mnemonic"], inst.inst["opStr"])
-    trace_log(inst_line, file_ins)
-    pass
-
-def trace_call_out(inst, file_cot):
-    global last_trace_pc
-
-    # cur_pc = int(inst.ctx.pc, 16)
-    # if cur_pc- last_trace_pc > 4:
-    #     trace_log("lost call/jmp ins \r\n", file_cot)
-    offet = hex(int(inst.addr, 16)-inst.base).upper()
     regs_str = ""
     if inst.ctx != None:
         regs = []
@@ -110,15 +100,28 @@ def trace_call_out(inst, file_cot):
                     regs_str += ("{}:{}!{}  ".format(reg, inst.ctx[reg], hex(int(inst.ctx[reg], 16)-inst.base)))
                 else:
                     regs_str += ("{}:{}  ".format(reg, inst.ctx[reg]))
-    inst_line = "{}!{:<10}{:<15}{:<30}{}".format(inst.addr.upper(), offet, inst.inst["mnemonic"], inst.inst["opStr"], regs_str)
-    trace_log(inst_line, file_cot)
-    # last_trace_pc = cur_pc
+    
+    jmpTag = ""
+    mnemonic = inst.inst["mnemonic"]
+    if mnemonic == "bl" or mnemonic == "b" or mnemonic == "blr" or mnemonic == "br":
+        jmpTag = "\r\n"
+        
+    inst_line = "{:<10}{:<15}{:<30}{}{}".format(offet, mnemonic, inst.inst["opStr"], regs_str, jmpTag)
+    trace_log(inst_line, file_ins)
     pass
 
-def trace_summery():
+def trace_call_out(inst, file):
+    global last_trace_pc
+    cur_pc = int(inst.ctx["pc"], 16)
+    if cur_pc- last_trace_pc == 8:
+        trace_ins(inst_dict[str(hex(cur_pc-4))], file)
+    trace_ins(inst, file)
+    last_trace_pc = cur_pc
+    pass
+
+def trace_summery(file_smy):
     for inst in inst_dict.values():
-        inst.trace_ins(inst, file_smy)
-        
+        trace_ins(inst, file_smy)      
     pass
 
 def on_message(msg, data):
@@ -137,14 +140,14 @@ def on_message(msg, data):
             val = json.loads(payload['val'])
             inst = Inst(payload["base"], val)
             inst_dict[inst.addr] = inst
-            trace_ins(inst, file_ins)
+            # trace_ins(inst, file_ins)
         elif type == 'ctx':
             val = json.loads(payload['val'])            
             ctx = Arm64Ctx(val)
             if ctx.pc not in inst_dict:
                 raise Exception("No inst addr:{} maybe caused by Interceptor.payload:{}".format(ctx.pc, payload))
             inst_dict[ctx.pc].ctx = ctx.ctx
-            trace_call_out(inst_dict[ctx.pc], file_cot)
+            trace_call_out(inst_dict[ctx.pc], file_ins)
             pass
         elif type == "leave":
             trace_summery(file_smy)
@@ -170,6 +173,8 @@ def main():
         config["payload"]["offset"] = int(args.interceptor, 16)
     else:
         config["payload"]["symbol"] = args.interceptor
+
+    config["payload"]["size"] = int(args.size, 16)
     
     device = frida.get_remote_device()
     if args.inject_method == "spawn":
