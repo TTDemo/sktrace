@@ -23,10 +23,10 @@ def find_bl_address(recent_ins_list, reg):
 
 def patch_ins(offet, ins):
     print("offset:%s patch ins:%s"%(hex(offset), ins))
-    # encoding, count = ks.asm(ins, offet)
-    # if count :
-    #     for i in range(4):
-    #         idc.patch_byte(offset + i, encoding[i])
+    encoding, count = ks.asm(ins, offet)
+    if count :
+        for i in range(4):
+            idc.patch_byte(offset + i, encoding[i])
 
 
 # 打开文件并按行读取
