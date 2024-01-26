@@ -113,8 +113,9 @@ def trace_ins(inst, file_ins):
 def trace_call_out(inst, file):
     global last_trace_pc
     cur_pc = int(inst.ctx["pc"], 16)
-    if cur_pc- last_trace_pc == 8:
-        trace_ins(inst_dict[str(hex(cur_pc-4))], file)
+    if last_trace_pc != 0:
+        if cur_pc - last_trace_pc >= 8:
+            trace_ins(inst_dict[str(hex(last_trace_pc+4))], file)
     trace_ins(inst, file)
     last_trace_pc = cur_pc
     pass
@@ -132,9 +133,14 @@ def on_message(msg, data):
     if msg['type'] == 'send':
         payload = msg['payload']
         type = payload['type']
-        if type == 'enter':
-            # val = json.loads(payload['val'])
-            # base = int(val["base"], 16)
+
+        if type == 'module':
+            val = json.loads(payload['val'])
+            trace_log(val, file_ins)
+            pass
+        elif type == 'exports':
+            val = payload['val']
+            trace_log(val, file_ins)
             pass
         elif type == 'inst':
             val = json.loads(payload['val'])
@@ -150,8 +156,10 @@ def on_message(msg, data):
             trace_call_out(inst_dict[ctx.pc], file_ins)
             pass
         elif type == "leave":
-            trace_summery(file_smy)
+            # trace_summery(file_smy)
             pass
+        else:
+            raise Exception("Unknown message type: {}".format(type))
 def main():
     script_file = os.path.join(os.path.dirname(__file__), "sktrace.js")
     try:

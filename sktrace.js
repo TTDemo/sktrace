@@ -33,6 +33,7 @@ function sk_trace_range_in_module(module) {
 }
 
 function sk_trace_func(module, fuc_addr, offset) {  
+    send({type: "module", tid: Process.getCurrentThreadId(), val: JSON.stringify(module)})
     Interceptor.attach(fuc_addr, {
         onEnter: function(args) {
             console.log(`onEnter: ${module.name} ${fuc_addr}`)
@@ -72,7 +73,22 @@ function watch_lib_load(libname, callback) {
     });
 }
 
-
+function enumerateExports(libname) {
+    console.log("Enumerating exports of " + libname + "...");
+    
+    // 枚举并将目标模块中的所有导出函数添加到数组中
+    Module.enumerateExports({
+        module: "libc.so",
+        onMatch: function (exp) {
+            exportsArray.push(exp.name);
+            console.log(exp.name);
+        },
+        onComplete: function () {
+            console.log("Enumeration completed.");
+            send({type:"exports", lib:libname, val:exportsArray});
+        }
+    });
+}
 
 (() => {
     recv("config", (msg) => {
@@ -80,29 +96,28 @@ function watch_lib_load(libname, callback) {
         console.log(JSON.stringify(payload))
         const libname = payload.libname;
         console.log(`libname:${libname}`)
-        // Process.enumerateModules({
-        //     onMatch: function (module) {
-        //             // 枚举导出函数并打印地址
-        //             if (module.name.indexOf("libc.so") >= 0  || module.name.indexOf("libdl.so") >= 0 
-        //             || module.name.indexOf("libm.so") >= 0   || module.name.indexOf("libstdc++.so") >= 0
-        //             || module.name.indexOf("libandroid.so") >= 0 || module.name.indexOf("liblog.so") >= 0
-        //             || module.name.indexOf("libz.so") >= 0 
-        //             ) {
-        //                 Module.enumerateExports(module.name, {
-        //                     onMatch: function (exportedFunction) {
-        //                        console.log(exportedFunction.address+":" + module.name + "!"+exportedFunction.name)
-        //                     },
-        //                     onComplete: function () {
-        //                         console.log('Export enumeration completed.');
-        //                     }
-        //                 });
-        //             }
+        var exportsArray = [];
+        Process.enumerateModules({
+            onMatch: function (module) {
+                    // 枚举导出函数并打印地址
+                    if (module.name.indexOf("libc.so") >= 0) {
+                        Module.enumerateExports(module.name, {
+                            onMatch: function (exportedFunction) {
+                               console.log(exportedFunction.address+":" + module.name + "!"+exportedFunction.name)
+                               exportsArray.push({address:exportedFunction.address, name:exportedFunction.name});
+                            },
+                            onComplete: function () {
+                                console.log('Export enumeration completed.');
+                            }
+                        });
+                    }
                   
-        //         },
-        //     onComplete: function () {
-        //         console.log('Module enumeration completed.');
-        //     }
-        // });
+                },
+            onComplete: function () {
+                console.log('Module enumeration completed.');
+                send({type:"exports", val:exportsArray});
+            }
+        });
 
         if(!payload.spawn) {
             const tmodule = Process.getModuleByName(libname);
