@@ -1,1 +1,4 @@
 *.log
+*.json
+*.patch
+*.ins

@@ -4,10 +4,10 @@ A instruction trace script based on Frida-Stalker.
 """
 
 import argparse
-import binascii
 import json
 import os
 import frida
+import re
 
 __version__ = "1.0.0"
 
@@ -58,15 +58,14 @@ def _parse_args():
     return args
 
 
-file_ins = open("trace_ins.log", 'w') 
-file_smy = open("trace_smy.log", 'w')
-
+file_raw_ins    = None 
+file_tiny_ins   = None
+file_patch      = None
 inst_dict = {}
 last_trace_pc = 0
 
 class Inst:
-    def __init__(self, base, inst):
-        self.base = int(base, 16)
+    def __init__(self,  inst):
         self.addr = inst["address"]
         self.inst = inst
         self.ctx = None
@@ -87,7 +86,7 @@ def trace_log(obj, f):
 
 
 def trace_ins(inst, file_ins):
-    offet = hex(int(inst.addr, 16)-inst.base).upper()
+    offet = hex(int(inst.addr, 16)-int(env["module"]["base"], 16)).upper()
     regs_str = ""
     if inst.ctx != None:
         regs = []
@@ -96,17 +95,14 @@ def trace_ins(inst, file_ins):
                 regs.append(operand["value"])
         for reg in regs:
             if reg in inst.ctx:
-                if reg == "x8" or reg == "x9":
-                    regs_str += ("{}:{}!{}  ".format(reg, inst.ctx[reg], hex(int(inst.ctx[reg], 16)-inst.base)))
-                else:
-                    regs_str += ("{}:{}  ".format(reg, inst.ctx[reg]))
+                regs_str += ("{}:{}  ".format(reg, inst.ctx[reg]))
     
     jmpTag = ""
     mnemonic = inst.inst["mnemonic"]
     if mnemonic == "bl" or mnemonic == "b" or mnemonic == "blr" or mnemonic == "br":
         jmpTag = "\r\n"
         
-    inst_line = "{:<10}{:<15}{:<30}{}{}".format(offet, mnemonic, inst.inst["opStr"], regs_str, jmpTag)
+    inst_line = "{:<15}{:<15}{:<30}{}{}".format(offet, mnemonic, inst.inst["opStr"], regs_str, jmpTag)
     trace_log(inst_line, file_ins)
     pass
 
@@ -125,6 +121,8 @@ def trace_summery(file_smy):
         trace_ins(inst, file_smy)      
     pass
 
+env = {}
+
 def on_message(msg, data):
     if msg['type'] == 'error':
         # trace_log(msg)
@@ -133,18 +131,18 @@ def on_message(msg, data):
     if msg['type'] == 'send':
         payload = msg['payload']
         type = payload['type']
-
+        
         if type == 'module':
-            val = json.loads(payload['val'])
-            trace_log(val, file_ins)
+            env["module"] = payload["val"]
+            # trace_log(json.dumps(env), trace_env)
             pass
         elif type == 'exports':
-            val = payload['val']
-            trace_log(val, file_ins)
+            env["exports"] = payload["val"]
+            # trace_log(json.dumps(payload), trace_env)
             pass
         elif type == 'inst':
             val = json.loads(payload['val'])
-            inst = Inst(payload["base"], val)
+            inst = Inst(val)
             inst_dict[inst.addr] = inst
             # trace_ins(inst, file_ins)
         elif type == 'ctx':
@@ -153,13 +151,59 @@ def on_message(msg, data):
             if ctx.pc not in inst_dict:
                 raise Exception("No inst addr:{} maybe caused by Interceptor.payload:{}".format(ctx.pc, payload))
             inst_dict[ctx.pc].ctx = ctx.ctx
-            trace_call_out(inst_dict[ctx.pc], file_ins)
+            trace_call_out(inst_dict[ctx.pc], file_raw_ins)
             pass
         elif type == "leave":
             # trace_summery(file_smy)
             pass
         else:
             raise Exception("Unknown message type: {}".format(type))
+
+recent_ins_list = []
+def read_reg(recent_ins_list, reg):
+    last_inses = recent_ins_list[::-1]
+    for instruction_line in last_inses:
+        pattern = re.compile(r'%s:0x[0-9A-Fa-f]+'%reg)
+        # 使用正则表达式进行匹配
+        match = pattern.search(instruction_line)
+        if match:
+            to_addr = match.group().split(":")[1]
+            return to_addr
+    
+    print("read_reg error")
+    return None
+
+
+def tiny_ins(file_path):
+    ins_file  =  open(file_path, 'r')
+    for line in ins_file:
+        if "blr" in line or "br" in line:
+            trace_log("- "+line.strip(), file_tiny_ins)
+            instruction_line = line.strip()
+            # print(instruction_line)
+            tokens = instruction_line.split()
+            offset = int(tokens[0], 16)
+            mnemonic = tokens[1]
+            reg_name  = tokens[2]
+            reg_val = read_reg(recent_ins_list, reg_name)
+
+            if reg_val != None:  
+                if reg_val in env["exports"]:
+                    reg_val = env["exports"][reg_val]
+                else:
+                    reg_val = hex(int(reg_val, 16) - int(env["module"]["base"], 16))
+
+                inst_line = "{:<15}{:<15}{:<30}".format(hex(offset).upper(), mnemonic[:-1], reg_val.upper())
+                trace_log(inst_line, file_patch)
+                trace_log("+ " + inst_line, file_tiny_ins)
+
+            recent_ins_list.clear()   
+        else:
+            recent_ins_list.append(line)
+            trace_log("+ " + line.strip(), file_tiny_ins)
+        pass
+
+
 def main():
     script_file = os.path.join(os.path.dirname(__file__), "sktrace.js")
     try:
@@ -182,6 +226,16 @@ def main():
     else:
         config["payload"]["symbol"] = args.interceptor
 
+    global file_raw_ins 
+    global file_tiny_ins
+    global file_patch
+
+    ins_path = "trace_ins_%s.ins"%str(args.interceptor)
+    file_raw_ins  = open(ins_path, 'w') 
+    file_tiny_ins = open("tiny_%s.ins"%str(args.interceptor), 'w')
+    file_patch    = open("%s.patch"%str(args.interceptor), 'w')
+
+    
     config["payload"]["size"] = int(args.size, 16)
     
     device = frida.get_remote_device()
@@ -225,7 +279,8 @@ def main():
         input()
     except KeyboardInterrupt:
         pass
-
+    file_raw_ins.close()
+    tiny_ins(ins_path)
     # _finish(args, device, pid, scripts)
 
 if __name__ == '__main__':

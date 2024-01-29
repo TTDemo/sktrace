@@ -1,4 +1,4 @@
-function sk_trace_range(tid, base, begin, end) {
+function sk_trace_range(tid, begin, end) {
     Stalker.follow(tid, {
         transform: (iterator) => {
             const instruction = iterator.next();
@@ -11,7 +11,6 @@ function sk_trace_range(tid, base, begin, end) {
                         type: 'inst',
                         tid: tid,
                         block: startAddress,
-                        base: base,
                         val: JSON.stringify(instruction)
                     })
                     iterator.putCallout((context) => {
@@ -29,17 +28,17 @@ function sk_trace_range(tid, base, begin, end) {
 }
 
 function sk_trace_range_in_module(module) {
-    sk_trace_range(Process.getCurrentThreadId(), module.base, module.base, module.base.add(module.size))
+    sk_trace_range(Process.getCurrentThreadId(),  module.base, module.base.add(module.size))
 }
 
 function sk_trace_func(module, fuc_addr, offset) {  
-    send({type: "module", tid: Process.getCurrentThreadId(), val: JSON.stringify(module)})
+    send({type: "module", tid: Process.getCurrentThreadId(), val: module})
     Interceptor.attach(fuc_addr, {
         onEnter: function(args) {
             console.log(`onEnter: ${module.name} ${fuc_addr}`)
             this.tid = Process.getCurrentThreadId();
             //sk_trace_range_in_module(module)
-            sk_trace_range(this.tid, module.base, fuc_addr, fuc_addr.add(offset))
+            sk_trace_range(this.tid, fuc_addr, fuc_addr.add(offset))
         },
         onLeave: function(ret) {
             console.log(`onLeave: ${module.name} ${fuc_addr}`)
@@ -96,15 +95,15 @@ function enumerateExports(libname) {
         console.log(JSON.stringify(payload))
         const libname = payload.libname;
         console.log(`libname:${libname}`)
-        var exportsArray = [];
+        var exportsArray = {};
         Process.enumerateModules({
             onMatch: function (module) {
                     // 枚举导出函数并打印地址
                     if (module.name.indexOf("libc.so") >= 0) {
                         Module.enumerateExports(module.name, {
                             onMatch: function (exportedFunction) {
-                               console.log(exportedFunction.address+":" + module.name + "!"+exportedFunction.name)
-                               exportsArray.push({address:exportedFunction.address, name:exportedFunction.name});
+                               //exportsArray[exportedFunction.address] =  module.name + "!"+ exportedFunction.name;
+                                exportsArray[exportedFunction.address] =  exportedFunction.name;
                             },
                             onComplete: function () {
                                 console.log('Export enumeration completed.');
