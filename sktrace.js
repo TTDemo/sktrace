@@ -35,19 +35,26 @@ function sk_trace_func(module, fuc_addr, offset) {
     send({type: "module", tid: Process.getCurrentThreadId(), val: module})
     Interceptor.attach(fuc_addr, {
         onEnter: function(args) {
-            console.log(`onEnter: ${module.name} ${fuc_addr}`)
-            this.tid = Process.getCurrentThreadId();
-            //sk_trace_range_in_module(module)
-            sk_trace_range(this.tid, fuc_addr, fuc_addr.add(offset))
+                       this.tid = Process.getCurrentThreadId();
+            console.log("args[2]:" + args[2])
+            //if(parseInt(args[2]) == 12) {
+                this.trace = true;
+                console.log(`onEnter: ${module.name} ${fuc_addr}` + Thread.backtrace(this.context, Backtracer.ACCURATE).map(DebugSymbol.fromAddress).join("\n"));
+                sk_trace_range_in_module(module)
+            //}
+            //sk_trace_range(this.tid, fuc_addr, fuc_addr.add(offset))
         },
         onLeave: function(ret) {
-            console.log(`onLeave: ${module.name} ${fuc_addr}`)
-            Stalker.unfollow(this.tid);
-            Stalker.garbageCollect()
-            send({
-                type: "leave",
-                tid: this.tid
-            })
+            if (this.trace) {
+                console.log(`onLeave: ${module.name} ${fuc_addr}`)
+                Stalker.unfollow(this.tid);
+                Stalker.garbageCollect()
+                send({
+                    type: "leave",
+                    tid: this.tid
+                })
+            }
+      
             
         }
     })
@@ -106,7 +113,7 @@ function enumerateExports(libname) {
                                 exportsArray[exportedFunction.address] =  exportedFunction.name;
                             },
                             onComplete: function () {
-                                console.log('Export enumeration completed.');
+                                console.log(module.name + 'Export enumeration completed. base:' +module.base);
                             }
                         });
                     }

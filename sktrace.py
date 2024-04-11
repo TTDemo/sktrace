@@ -89,13 +89,15 @@ def trace_ins(inst, file_ins):
     offet = hex(int(inst.addr, 16)-int(env["module"]["base"], 16)).upper()
     regs_str = ""
     if inst.ctx != None:
-        regs = []
-        for operand  in inst.inst["operands"] :
-            if operand["type"] == "reg" and operand["value"] not in regs:
-                regs.append(operand["value"])
+        regs = ["x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "x16", "x17", "x18", "x19", "x20", "x21", "x22", "x23", "x24", "x25", "x26", "x27", "x28", "x29", "x30", "sp", "lr", "pc"]
+        # for operand  in inst.inst["operands"] :
+        #     if operand["type"] == "reg" and operand["value"] not in regs:
+        #         regs.append(operand["value"])
+        
         for reg in regs:
             if reg in inst.ctx:
                 regs_str += ("{}:{}  ".format(reg, inst.ctx[reg]))
+        
     
     jmpTag = ""
     mnemonic = inst.inst["mnemonic"]
@@ -122,6 +124,7 @@ def trace_summery(file_smy):
     pass
 
 env = {}
+trace_env = None
 
 def on_message(msg, data):
     if msg['type'] == 'error':
@@ -134,7 +137,7 @@ def on_message(msg, data):
         
         if type == 'module':
             env["module"] = payload["val"]
-            # trace_log(json.dumps(env), trace_env)
+            trace_log(json.dumps(env), trace_env)
             pass
         elif type == 'exports':
             env["exports"] = payload["val"]
@@ -176,6 +179,10 @@ def read_reg(recent_ins_list, reg):
 
 def tiny_ins(file_path):
     ins_file  =  open(file_path, 'r')
+    b_log = []
+    bl_address_log = []
+    bl_symbol_log = []
+
     for line in ins_file:
         if "blr" in line or "br" in line:
             trace_log("- "+line.strip(), file_tiny_ins)
@@ -186,22 +193,52 @@ def tiny_ins(file_path):
             mnemonic = tokens[1]
             reg_name  = tokens[2]
             reg_val = read_reg(recent_ins_list, reg_name)
-
-            if reg_val != None:  
+            if reg_val == None:  
+                raise Exception("read_reg error")
+            
+            if mnemonic == "blr":
                 if reg_val in env["exports"]:
                     reg_val = env["exports"][reg_val]
+                    inst_line = "{:<15}{:<15}{:<30}".format(hex(offset).upper(), "bl", reg_val)
+                    bl_symbol_log.append(inst_line)
                 else:
                     reg_val = hex(int(reg_val, 16) - int(env["module"]["base"], 16))
-
-                inst_line = "{:<15}{:<15}{:<30}".format(hex(offset).upper(), mnemonic[:-1], reg_val.upper())
-                trace_log(inst_line, file_patch)
-                trace_log("+ " + inst_line, file_tiny_ins)
-
+                    inst_line = "{:<15}{:<15}{:<30}".format(hex(offset).upper(), "bl", reg_val)
+                    bl_address_log.append(inst_line)
+            elif mnemonic == "br":
+                if reg_val in env["exports"]:
+                    reg_val = env["exports"][reg_val]
+                    inst_line = "{:<15}{:<15}{:<30}".format(hex(offset).upper(), "b", reg_val)
+                    bl_symbol_log.append(inst_line)
+                else:
+                    reg_val = hex(int(reg_val, 16) - int(env["module"]["base"], 16))
+                    inst_line = "{:<15}{:<15}{:<30}".format(hex(offset).upper(), "b", reg_val)
+                    b_log.append(inst_line)
+            else:
+                raise Exception("Unknown mnemonic: {}".format(mnemonic))
+            
+            trace_log("+ " + inst_line, file_tiny_ins)
             recent_ins_list.clear()   
         else:
             recent_ins_list.append(line)
             trace_log("+ " + line.strip(), file_tiny_ins)
-        pass
+
+    trace_log("bl_address_log", file_patch)
+    for log in bl_address_log:
+        trace_log(log, file_patch)
+    bl_address_log.clear()
+
+    trace_log("\r\nbl_symbol_log", file_patch)
+    for log in bl_symbol_log:
+        trace_log(log, file_patch)
+    bl_symbol_log.clear()
+    
+    trace_log("\r\nb_log", file_patch)
+    for log in b_log:
+        trace_log(log, file_patch)
+    b_log.clear()
+
+    pass
 
 
 def main():
@@ -229,11 +266,12 @@ def main():
     global file_raw_ins 
     global file_tiny_ins
     global file_patch
-
-    ins_path = "trace_ins_%s.ins"%str(args.interceptor)
+    global trace_env
+    ins_path = "raw_%s.ins"%str(args.interceptor)
     file_raw_ins  = open(ins_path, 'w') 
     file_tiny_ins = open("tiny_%s.ins"%str(args.interceptor), 'w')
     file_patch    = open("%s.patch"%str(args.interceptor), 'w')
+    trace_env     = open("env_%s.json"%str(args.interceptor), 'w')
 
     
     config["payload"]["size"] = int(args.size, 16)
@@ -279,8 +317,8 @@ def main():
         input()
     except KeyboardInterrupt:
         pass
-    file_raw_ins.close()
     tiny_ins(ins_path)
+    # file_raw_ins.close()
     # _finish(args, device, pid, scripts)
 
 if __name__ == '__main__':
